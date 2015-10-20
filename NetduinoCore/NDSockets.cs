@@ -4,7 +4,7 @@ using System.Net.Sockets;
 using System.Threading;
 using Microsoft.SPOT;
 
-namespace NetduinoPlusTemperatureReading
+namespace NetduinoCore
 {
     class NDSockets
     {

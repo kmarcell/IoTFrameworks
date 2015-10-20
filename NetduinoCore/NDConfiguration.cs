@@ -1,7 +1,7 @@
 using System;
 using Microsoft.SPOT;
 
-namespace NetduinoPlusTemperatureReading
+namespace NetduinoCore
 {
     class NDMQTTConfiguration
     {

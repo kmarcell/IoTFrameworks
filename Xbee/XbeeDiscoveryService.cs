@@ -2,7 +2,7 @@ using System;
 using Microsoft.SPOT;
 using CoreCommunication;
 
-namespace NetduinoPlusTemperatureReading
+namespace Xbee
 {
     class XbeeDiscoveryService : IDiscoveryService
     {

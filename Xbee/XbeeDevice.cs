@@ -3,7 +3,7 @@ using Microsoft.SPOT;
 using System.IO.Ports;
 using CoreCommunication;
 
-namespace NetduinoPlusTemperatureReading
+namespace Xbee
 {
     public class ReceivedRemoteFrameEventArgs : EventArgs
     {

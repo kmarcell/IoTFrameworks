@@ -7,9 +7,7 @@ using System.Threading;
 using Microsoft.SPOT;
 using Microsoft.SPOT.Net.NetworkInformation;
 
-using Logger;
-
-namespace NetduinoPlusTemperatureReading
+namespace NetduinoCore
 {
     class NDBroadcastAddress
     {

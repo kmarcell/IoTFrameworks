@@ -1,10 +1,11 @@
 using System;
 using Microsoft.SPOT;
+using System.Net;
 using Microsoft.SPOT.Net.NetworkInformation;
 
 using CloudLib;
 
-namespace NetduinoPlusTemperatureReading
+namespace NetduinoCore
 {
     class NDMQTT : MQTTCloudPlatform
     {
@@ -60,6 +61,48 @@ namespace NetduinoPlusTemperatureReading
 
                 return macAddress;
             }
+        }
+
+        public override int SubscribeToEvents(int[] topicQoS, string[] subTopics)
+        {
+            int returnCode = base.SubscribeToEvents(topicQoS, subTopics);
+            if (returnCode == 0)
+            {
+                NDLogger.Log("Subscribed to " + subTopics, LogLevel.Verbose);
+            }
+            else
+            {
+                NDLogger.Log("Subscription failed with errorCode: " + returnCode, LogLevel.Error);
+            }
+            return returnCode;
+        }
+
+        public override int Connect(IPHostEntry host, string userName, string password, int port = 1883)
+        {
+            int returnCode = base.Connect(host, userName, password, port);
+            if (returnCode != 0)
+            {
+                NDLogger.Log("MQTT connection error: " + returnCode, LogLevel.Error);
+            }
+            else
+            {
+                NDLogger.Log("Connected to MQTT", LogLevel.Verbose);
+            }
+            return returnCode;
+        }
+
+        public override void ListenerThreadException(Exception e)
+        {
+            base.ListenerThreadException(e);
+            NDLogger.Log("MQTT cloud platform listener error: " + e.Message, LogLevel.Error);
+            NDLogger.Log(e.StackTrace, LogLevel.Verbose);
+            NDLogger.Log("MQTT cloud platform restarting", LogLevel.Verbose);
+        }
+
+        public override void SocketError()
+        {
+            base.SocketError();
+            NDLogger.Log("Unknown socket error!", LogLevel.Error);
         }
     }
 }

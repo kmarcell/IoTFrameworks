@@ -1,7 +1,7 @@
 using System;
 using Microsoft.SPOT;
 
-namespace Logger
+namespace NetduinoCore
 {
     public enum LogLevel : int
     {

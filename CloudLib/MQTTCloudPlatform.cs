@@ -4,8 +4,6 @@ using System.Net.Sockets;
 using System.Threading;
 
 using Microsoft.SPOT;
-
-using Logger;
 using Netduino_MQTT_Client_Library;
 
 namespace CloudLib
@@ -50,7 +48,7 @@ namespace CloudLib
             this.clientID = clientID;
         }
 
-        public int Connect(IPHostEntry host, string userName, string password, int port = 1883)
+        public virtual int Connect(IPHostEntry host, string userName, string password, int port = 1883)
         {
 
             if (host == null || userName == null || password == null)
@@ -69,18 +67,16 @@ namespace CloudLib
             {
                 socket.Close();
                 socket = null;
-                NDLogger.Log("Unknown socket error!", LogLevel.Error);
+                SocketError();
                 return Constants.CONNECTION_ERROR;
             }
 
             int returnCode = NetduinoMQTT.ConnectMQTT(socket, clientID, 20, true, userName, password);
             if (returnCode != Constants.SUCCESS)
             {
-                NDLogger.Log("MQTT connection error: " + returnCode, LogLevel.Error);
                 return returnCode;
             }
 
-            NDLogger.Log("Connected to MQTT", LogLevel.Verbose);
             Timer pingTimer = new Timer(new TimerCallback(PingServer), null, 1000, 10000);
 
             // Setup and start a new thread for the listener
@@ -89,6 +85,8 @@ namespace CloudLib
 
             return 0;
         }
+
+        public virtual void SocketError() { }
 
         bool TryConnect(Socket s, EndPoint ep)
         {
@@ -128,20 +126,11 @@ namespace CloudLib
             return returnCode;
         }
 
-        public int SubscribeToEvents(int[] topicQoS, string[] subTopics)
+        public virtual int SubscribeToEvents(int[] topicQoS, string[] subTopics)
         {
             this.topicQoS = topicQoS;
             this.subTopics = subTopics;
             int returnCode = NetduinoMQTT.SubscribeMQTT(socket, subTopics, topicQoS, 1);
-
-            if (returnCode == 0)
-            {
-                NDLogger.Log("Subscribed to " + subTopics, LogLevel.Verbose);
-            }
-            else
-            {
-                NDLogger.Log("Subscription failed with errorCode: " + returnCode, LogLevel.Error);
-            }
 
             return returnCode;
         }
@@ -192,13 +181,12 @@ namespace CloudLib
             }
             catch (Exception e)
             {
-                NDLogger.Log("MQTT cloud platform listener error: " + e.Message, LogLevel.Error);
-                NDLogger.Log(e.StackTrace, LogLevel.Verbose);
-                NDLogger.Log("MQTT cloud platform restarting", LogLevel.Verbose);
+                ListenerThreadException(e);
                 Disconnect();
                 Connect(host, userName, password, port);
-                NDLogger.Log("MQTT cloud platform restarted", LogLevel.Verbose);
             }
         }
+
+        public virtual void ListenerThreadException(Exception e) { }
     }
 }
