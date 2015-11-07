@@ -9,6 +9,11 @@ namespace XBee
         private XBeeCoordinator coordinator;
         private RemoteXBee[] knownDevices;
 
+        public RemoteXBee[] KnownDevices
+        {
+            get { return knownDevices; }
+        }
+
         public XBeeDiscoveryService(XBeeCoordinator coordinator)
         {
             this.coordinator = coordinator;
@@ -31,22 +36,18 @@ namespace XBee
         {
             RemoteXBee[] xbees = new RemoteXBee[knownDevices.Length + 1];
             Array.Copy(knownDevices, xbees, knownDevices.Length);
+            xbees[knownDevices.Length] = xbee;
             knownDevices = xbees;
-
             xbee.coordinator = coordinator;
-            if (xbee.Identifier == null || xbee.Identifier == "")
-            {
-                xbee.Identifier = "Node" + knownDevices.Length;
-            }
         }
 
         public delegate void DiscoveryCallback(RemoteXBee[] knownDevices);
         public void Discover(DiscoveryCallback callback)
         {
             coordinator.StartListen();
-            Frame discoverNodes = FrameBuilder.ATCommandRequest
+            ATCommandRequestFrame discoverNodes = FrameBuilder.ATCommandRequest
                                     .setATCommandName("ND")
-                                    .Build();
+                                    .Build() as ATCommandRequestFrame;
 
             coordinator.EnqueueFrame(discoverNodes, delegate(Frame frame)
             {

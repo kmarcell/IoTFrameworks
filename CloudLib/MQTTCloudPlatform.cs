@@ -1,6 +1,6 @@
 using System;
 using System.Net;
-using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 
 using Microsoft.SPOT;
@@ -9,55 +9,48 @@ using Microsoft.SPOT.Net;
 using Microsoft.SPOT.Hardware;
 using SecretLabs.NETMF.Hardware;
 using SecretLabs.NETMF.Hardware.Netduino;
-
-using Netduino_MQTT_Client_Library;
+using uPLibrary.Networking.M2Mqtt;
+using uPLibrary.Networking.M2Mqtt.Messages;
 
 namespace CloudLib
 {
-    public class ListenerThreadExceptionEventArgs : EventArgs
+    public enum MqttQoS : byte
     {
-        private Exception exception;
+        DeliverExactlyOnce = MqttMsgBase.QOS_LEVEL_EXACTLY_ONCE,
+        DeliverAtLeastOnce = MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE,
+        DeliverAtMostOnce = MqttMsgBase.QOS_LEVEL_AT_MOST_ONCE,
+        GrantedFailure = MqttMsgBase.QOS_LEVEL_GRANTED_FAILURE,
+    }
 
-        public ListenerThreadExceptionEventArgs(Exception exception)
-        {
-            this.exception = exception;
-        }
+    public class MqttMsgPublishReceivedEventArgs : EventArgs
+    {
+        public string Message;
+        public MqttQoS QosLevel;
+        public string Topic;
 
-        public Exception Exception
+        public MqttMsgPublishReceivedEventArgs(byte[] Message, byte QosLevel, string Topic)
         {
-            get { return this.exception; }
+            this.Message = new string(Encoding.UTF8.GetChars(Message));
+            this.QosLevel = (MqttQoS)QosLevel;
+            this.Topic = Topic;
         }
     }
 
-    public delegate void ListenerThreadExceptionEventHandler(object sender, ListenerThreadExceptionEventArgs e);
+    public delegate void MqttMsgPublishReceivedEventHandler(object sender, MqttMsgPublishReceivedEventArgs e);
 
     class MQTTCloudPlatform : ICloudPlatform
     {
-        private Socket socket;
-        private Thread listenerThread;
+        private MqttClient mqttClient;
 
-        private int[] topicQoS;
-        protected string[] subTopics;
-
-        protected IPHostEntry host;
+        protected string host;
         protected string userName;
         protected string password;
-        protected int port;
-        protected bool isConnected;
 
         protected string clientID;
 
-        public delegate string TopicFromEventTypeHandler(int eventType);
-        public TopicFromEventTypeHandler TopicFromEventType;
-        public event ListenerThreadExceptionEventHandler ListenerThreadException;
-
-        ~MQTTCloudPlatform()
-        {
-            if (listenerThread != null)
-            {
-                listenerThread.Abort();
-            }
-        }
+        public delegate string TopicFromEventHandler(CLEvent clEvent);
+        public TopicFromEventHandler TopicFromEvent;
+        public event MqttMsgPublishReceivedEventHandler MqttMsgPublishReceived;
 
         public MQTTCloudPlatform()
         {
@@ -72,162 +65,82 @@ namespace CloudLib
         {
             get
             {
-                return isConnected;
+                return mqttClient == null ? false : mqttClient.IsConnected;
             }
         }
 
-        public virtual int Connect(IPHostEntry host, string userName, string password, int port = 1883)
+        public virtual int Connect(string host, string userName, string password, int port = 1883)
         {
             if (host == null || userName == null || password == null)
             {
-                return Constants.CONNECTION_ERROR;
+                return -1;
             }
             
             this.userName = userName;
             this.password = password;
             this.host = host;
-            this.port = port;
 
-            new Thread(delegate
-            {
-                try
-                {
-                    Connect();
-                }
-                catch
-                {
-                }
-            }).Start();
+            mqttClient = new MqttClient(host, port, false, null, MqttSslProtocols.None);
 
-            int checks = 50;
-            while (checks-- > 0 && !IsConnected)
-            {
-                Thread.Sleep(100);
-            }
+            // register to message received 
+            mqttClient.MqttMsgPublishReceived += client_MqttMsgPublishReceived;
 
-            return IsConnected ? Constants.SUCCESS : Constants.CONNECTION_ERROR;
+            string clientId = this.clientID == null ? Guid.NewGuid().ToString() : this.clientID;
+            int returnCode = mqttClient.Connect(clientID, userName, password);
+
+            return mqttClient.IsConnected ? 0 : returnCode;
         }
 
-        public void StartListen()
+        void client_MqttMsgPublishReceived(object sender, MqttMsgPublishEventArgs e)
         {
-            try
-            {
-                listenerThread = new Thread(mylistenerThread);
-                listenerThread.Start();
-            }
-            catch (Exception e)
-            {
-                onListenerThreadException(new ListenerThreadExceptionEventArgs(e));
-            }
+            onMqttMsgPublishReceived(new MqttMsgPublishReceivedEventArgs(e.Message, e.QosLevel, e.Topic));
         }
 
-        public void StopListen()
+        private void onMqttMsgPublishReceived(MqttMsgPublishReceivedEventArgs e)
         {
-            try
-            {
-                listenerThread.Abort();
-            }
-            catch (ThreadAbortException)
-            {
-
-            }
-        }
-
-        private void Connect()
-        {
-            socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            socket.Connect(new IPEndPoint(host.AddressList[0], port));
-            NetduinoMQTT.ConnectMQTT(socket, clientID, 20, true, userName, password);
-            Timer pingTimer = new Timer(new TimerCallback(PingServer), null, 1000, 10000);
-            isConnected = true;
-        }
-
-        public int Disconnect()
-        {
-            int returnCode = 0;
-            isConnected = false;
-
-            StopListen();
-            try
-            {
-                returnCode = NetduinoMQTT.DisconnectMQTT(socket);
-            }
-            catch { }
-
-            socket.Close();
-            socket = null;
-
-            return returnCode;
-        }
-
-        public virtual int SubscribeToEvents(int[] topicQoS, string[] subTopics)
-        {
-            this.topicQoS = topicQoS;
-            this.subTopics = subTopics;
-            int returnCode = NetduinoMQTT.SubscribeMQTT(socket, subTopics, topicQoS, 1);
-
-            return returnCode;
-        }
-
-        public int UnsubscribeFromEvents()
-        {
-            int returnCode = NetduinoMQTT.UnsubscribeMQTT(socket, this.subTopics, this.topicQoS, 1);
-            return returnCode;
-        }
-
-        public int PostEvent(CLEvent e)
-        {
-            if (!IsConnected) { return Constants.CONNECTION_ERROR; }
-
-            string topic = TopicFromEventType(e.EventType);
-            string message = e.serialize();
-            try
-            {
-                NetduinoMQTT.PublishMQTT(socket, topic, message);
-            }
-            catch
-            {
-                Disconnect();
-                Connect(host, userName, password, port);
-            }
-
-            // do not log publish here with mqtt logger, it causes a call cycle
-
-            return 0;
-        }
-
-        /** Private **/
-
-        // The function that the timer calls to ping the server
-        // Our keep alive is 15 seconds - we ping again every 10. 
-        // So we should live forever.
-        private void PingServer(object o)
-        {
-            if (IsConnected)
-            {
-                NetduinoMQTT.PingMQTT(socket);
-            }
-        }
-
-        private void mylistenerThread()
-        {
-            try
-            {
-                NetduinoMQTT.listen(socket);
-            }
-            catch (SocketException se)
-            {
-                onListenerThreadException(new ListenerThreadExceptionEventArgs(se));
-            }
-        }
-
-        private void onListenerThreadException(ListenerThreadExceptionEventArgs e)
-        {
-            ListenerThreadExceptionEventHandler handler = ListenerThreadException;
+            MqttMsgPublishReceivedEventHandler handler = MqttMsgPublishReceived;
             if (handler != null)
             {
                 handler(this, e);
             }
+        }
+
+        public void Disconnect()
+        {
+            if (mqttClient != null)
+            {
+                mqttClient.Disconnect();
+            }
+        }
+
+        public virtual int SubscribeToEvents(MqttQoS qualityOfService, string[] subTopics)
+        {
+            if (mqttClient != null)
+            {
+                int returnCode = mqttClient.Subscribe(subTopics, new byte[] { (byte)qualityOfService });
+                return returnCode;
+            }
+            return -1;
+        }
+
+        public int UnsubscribeFromEvents(string[] subTopics)
+        {
+            if (mqttClient != null)
+            {
+                int returnCode = mqttClient.Unsubscribe(subTopics);
+                return returnCode;
+            }
+            return -1;
+        }
+
+        public virtual int PostEvent(CLEvent e)
+        {
+            if (!IsConnected || mqttClient == null) { return -1; }
+
+            string topic = TopicFromEvent(e);
+            string message = e.serialize();
+            int returnCode = mqttClient.Publish(topic, Encoding.UTF8.GetBytes(message));
+            return returnCode;
         }
     }
 }
